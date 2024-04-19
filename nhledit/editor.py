@@ -2,28 +2,29 @@ from .constants import ITEM_DIY_RECIPE, ITEM_EMPTY
 import re
 import logging
 
-re_context = re.compile(r'@([0-9]+),([0-9]+)(?:,([0-9]+))?(?:,([0-9]+))?(?:,([0-9]+))?(?:,([0-9]+))?(?:,([a-z,]+))?')
-re_item = re.compile(r'([0-9a-fA-F]+)(?:[|]([0-9]+))?(?:[*]([0-9]+))?')
-re_variant = re.compile(r'(?:([0-9])_([0-9])|NA)')
+# Regex to parse item context strings starting with '@'. Captures x, y coordinates, width, height, offset,
+# a hexadecimal flag0, and a comma-separated list of settings. Used to initialize ItemContext objects with detailed positioning and behavioral settings.
+re_context = re.compile(r"@([0-9]+),([0-9]+)(?:,([0-9]+))?(?:,([0-9]+))?(?:,([0-9]+))?(?:,([0-9a-fA-F]+))?(?:,([a-z,]+))?")
+# Regex to parse item strings consisting of a hexadecimal ID, optionally followed by a stack size (preceded by '|') and a count (preceded by '*'). These values influence item representation and behavior based on context settings.
+re_item = re.compile(r"([0-9a-fA-F]+)(?:[|]([0-9]+))?(?:[*]([0-9]+))?")
+# Regex to parse variant strings, either as 'NA' or as two single digits separated by an underscore, representing variant and texture codes for items. Used to manipulate item's bit representation for variants.
+re_variant = re.compile(r"(?:([0-9])_([0-9])|NA)")
 
 stacksize = {}
 
 try:
-    with open('res/stacksize.txt') as f:
-        logging.info("stack size file loaded!")
+    with open("res/stacksize.txt") as f:
+        logging.info("Stack size file loaded!")
         count = 0
         for line in f:
             line = line.strip()
-            if not line:
-                continue
-            if line.startswith('#'):  # Strip comments
-                continue
-            size, id = line.split()
-            stacksize[int(id)] = int(size)
-            count += 1
-        logging.info("Total %s items loaded from stack size.", count)
+            if line and not line.startswith("#"):  # Skip empty lines and comments
+                stack_size, item_id = line.split()
+                stacksize[int(item_id)] = int(stack_size)
+                count += 1
+        logging.info(f"Total {count} items loaded from stack size file.")
 except FileNotFoundError as e:
-    logging.warn(e)
+    logging.warning(f"File not found: {e}")
 
 
 class ItemContext:
@@ -34,10 +35,10 @@ class ItemContext:
         self.height = height
         self.offset = offset
         self.flag0 = flag0
-        self.diy = 'diy' in settings
-        self.hex = 'hex' in settings
-        self.variants = 'variants' in settings
-        self.fossil = 'fossil' in settings
+        self.diy = "diy" in settings
+        self.hex = "hex" in settings
+        self.variants = "variants" in settings
+        self.fossil = "fossil" in settings
 
     def advance(self):
         self.offset += 1
@@ -64,19 +65,48 @@ class NHLEditor:
             self.apply_command(command)
 
     def apply_command(self, command):
-        context_match = re_context.match(command)
-        if context_match:
-            return self.apply_context(context_match.groups())
+        if not command:
+            return  # Skip empty command
 
-        variant_match = re_variant.match(command)
-        if variant_match:
-            return self.apply_variant(variant_match.groups())
+        if len(command) == 1:
+            # Single field command
+            if command[0].startswith("@"):
+                context_match = re_context.match(command[0])
+                if context_match:
+                    self.apply_context(context_match.groups())
+                else:
+                    raise ValueError(f"Invalid context command format: {command[0]}")
+            else:
+                item_match = re_item.match(command[0])
+                if item_match:
+                    self.apply_item(item_match.groups())
+                else:
+                    raise ValueError(f"Invalid item command format: {command[0]}")
 
-        item_match = re_item.match(command)
-        if item_match:
-            return self.apply_item(item_match.groups())
+        elif len(command) == 2:
+            # Two fields, assumed to be variant_id and item_id
+            variant_match = re_variant.match(command[0])
+            item_match = re_item.match(command[1])
+            if variant_match and item_match:
+                self.apply_variant(variant_match.groups())
+                self.apply_item(item_match.groups())
+            else:
+                raise ValueError(f"Invalid variant or item ID format: {command}")
 
-        raise ValueError('Invalid command: %s', command)
+        elif len(command) > 2:
+            # More complex command, third-last is variant_id, second-last is item_id
+            variant_id = command[-3]
+            item_id = command[-2]
+            variant_match = re_variant.match(variant_id)
+            if variant_match:
+                self.apply_variant(variant_match.groups())
+            elif not variant_id.isdigit():  # Check if variant ID is not just a single integer
+                raise ValueError(f"Invalid variant ID format: {variant_id}")
+            item_match = re_item.match(item_id)
+            if item_match:
+                self.apply_item(item_match.groups())
+            else:
+                raise ValueError(f"Invalid item ID format: {item_id}")
 
     def apply_context(self, match_groups):
         arg1 = []
@@ -93,7 +123,7 @@ class NHLEditor:
         # Convert additional flags
         arg2 = []
         if match_groups[-1] is not None:
-            arg2.extend(match_groups[-1].split(','))
+            arg2.extend(match_groups[-1].split(","))
 
         self.context = ItemContext(*arg1, flag0=flag0, settings=arg2)
         self.last_item = None
@@ -107,7 +137,7 @@ class NHLEditor:
         stack_size = max(0, int(match_items[1] or 1) - 1)
         count = max(0, int(match_items[2] or 1))
 
-        item_base = item & 0xffff
+        item_base = item & 0xFFFF
 
         # Set flag0 and stack size or variant
         item |= self.context.flag0 << 16
@@ -126,14 +156,14 @@ class NHLEditor:
 
         # Apply default stack size
         max_stack_size = stacksize.get(item_base, 1) - 1
-        if item & 0x1f0000 == 0 and max_stack_size > 0:
+        if item & 0x1F0000 == 0 and max_stack_size > 0:
             item |= max_stack_size << 32
 
         # Apply count number of items
         for _ in range(count):
             # Automatically increment variant code
-            if self.last_item and self.context.variants and item_base == (self.last_item & 0xffff):
-                item = item_base | (self.last_item & 0x1f0000 + 0x10000)
+            if self.last_item and self.context.variants and item_base == (self.last_item & 0xFFFF):
+                item = item_base | (self.last_item & 0x1F0000 + 0x10000)
             self.last_item = item
 
             # Actual set item and increment counter
