@@ -64,8 +64,8 @@ class ItemLayer:
             List[int]: A list of item IDs, optionally including variant data.
         """
         item_ids = []
-        for x in range(self.width):
-            for y in range(self.height):
+        for y in range(self.height):
+            for x in range(self.width):
                 item_id = self.get_item(x, y)
                 base_id = item_id & 0xFFFF  # Extract the base item ID to check against constants
 

@@ -44,7 +44,6 @@ def run_script(base=None, output=None, *script_files, drop_group=4, drop_command
     editor = NHLEditor(layer)
 
     for script_file in script_files:
-        editor.reset_context()
         for command in parse_script(script_file):
             editor.apply_command(command)
 

@@ -28,7 +28,7 @@ except FileNotFoundError as e:
 
 
 class ItemContext:
-    def __init__(self, x=0, y=0, width=16, height=0, offset=0, flag0=0, settings=[]):
+    def __init__(self, x=0, y=0, width=64, height=0, offset=0, flag0=0, settings=[]):
         self.x = x
         self.y = y
         self.width = max(width, 1)
